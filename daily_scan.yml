@@ -1,0 +1,43 @@
+name: Alpha Scout Daily Scan
+
+on:
+  schedule:
+    # Runs at 13:00 UTC (08:00 AM EST / 09:00 AM EDT)
+    - cron: '0 13 * * *'
+  workflow_dispatch: # Allows manual triggering
+
+jobs:
+  scout:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # Needed to commit the JSON file
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Run Alpha Scout
+        env:
+          GEMINI_API_KEY: ${{ secrets.AIzaSyA62C1qiD5fzVXC-LePfQPGv0MEI9qySpE }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          # Optional: Override model if needed
+          # GEMINI_MODEL: "gemini-3-pro" 
+        run: python alpha_scout.py
+
+      - name: Commit and Push Report
+        run: |
+          git config --global user.name "Alpha Scout Bot"
+          git config --global user.email "bot@alphascout.local"
+          git add data/latest_report.json
+          # Only commit if there are changes
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Update Alpha Scout Report: $(date +'%Y-%m-%d')" && git push)
