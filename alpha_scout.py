@@ -9,8 +9,8 @@ from google import genai
 from google.genai import types
 
 # --- CONFIGURATION ---
-# Update 'gemini-1.5-pro-002' to 'gemini-3-pro' when available
-MODEL_ID = os.getenv("GEMINI_MODEL", "gemini-1.5-pro-002") 
+# Latest model as of December 2025: gemini-3-pro-preview
+MODEL_ID = os.getenv("GEMINI_MODEL", "gemini-3-pro-preview") 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 DATA_FILE = "data/latest_report.json"
@@ -31,7 +31,7 @@ class ScoutReport(BaseModel):
 
 # --- AGENT SETUP ---
 def get_alpha_scout_response():
-    client = genai.Client(api_key=os.getenv("AIzaSyA62C1qiD5fzVXC-LePfQPGv0MEI9qySpE"))
+    client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
     # System Instructions
     system_instruction = """
