@@ -1,54 +1,34 @@
 {
   "catalysts": [
     {
-      "ticker": "TSLA",
-      "conviction_score": 9,
-      "thesis": "Tesla stock is under pressure (down 3.3% on Dec 30) as investors nervously await Q4 delivery numbers. Analysts expect ~515k deliveries to meet the 1.8M annual target; a miss could trigger a further breakdown.",
-      "catalyst_details": "Q4 Delivery Numbers expected on January 2, 2025. Consensus estimate: 511,000-515,000 vehicles.",
-      "sentiment": "Bearish",
-      "prediction_market": "Kalshi: 'Tesla deliveries Q4 > 480k' is 70% Yes. Polymarket: 'Tesla Q4 Deliveries' volume rising.",
-      "recency_proof": "Investopedia (Dec 30, 2024): 'Tesla Leads Big-Tech Slump... deliveries report due Thursday.'",
-      "risk": "Stronger-than-expected China numbers (record registrations) could cause a squeeze."
-    },
-    {
-      "ticker": "BA",
-      "conviction_score": 8,
-      "thesis": "Boeing shares dropped >2% breaking technical support at $170 after a 737-800 crash in South Korea prompted immediate inspection orders, reigniting safety concerns.",
-      "catalyst_details": "Jeju Air 737-800 crash incident (Dec 29/30) and subsequent South Korean government inspection order.",
-      "sentiment": "Bearish",
-      "prediction_market": "Polymarket: 'Boeing at fault for South Korea crash?' market created Dec 30. Sentiment implies regulatory risk.",
-      "recency_proof": "MoneyMorning (Dec 30, 2024): 'Boeing Shares Hit Key Technical Support... after 737-800 crash in South Korea.'",
-      "risk": "Investigation clears Boeing of mechanical fault (e.g., pilot error)."
-    },
-    {
       "ticker": "SPY",
       "conviction_score": 8,
-      "thesis": "Yields hit multi-month highs (10Y > 4.6%) as traders price out a January Fed rate cut, creating a headwind for equities at all-time highs.",
-      "catalyst_details": "FOMC Meeting Jan 29, 2025. Market has repriced January cut probability significantly lower in the last 72h.",
+      "thesis": "Polymarket odds for a January 2026 Fed rate cut have collapsed to ~12%, with 88% favoring a 'Hold'. This hawkish repricing (removing ease expectations) presents a short-term liquidity headwind for equities and crypto.",
+      "catalyst_details": "Federal Reserve Open Market Committee (FOMC) meeting in January 2026. Data from Dec 30 confirms market consensus has shifted to a 'Pause' (Hold) scenario.",
       "sentiment": "Bearish",
-      "prediction_market": "Polymarket: 'Fed Rate Cut Jan 2025' odds collapsed to ~13-15%. Kalshi: 'Cut 25bps' at 15%.",
-      "recency_proof": "CoinGape (Dec 29, 2024): 'January Fed Rate Cut Odds Fall to New Lows (13%) After Strong GDP Data.'",
-      "risk": "Weak labor data in early January forces Fed pivot back to dovishness."
+      "prediction_market": "Polymarket: 'Fed decision in January?' Odds: 88% No Change, 12% Cut. Vol: ~$101M.",
+      "recency_proof": "CryptoTicker Analysis (Dec 30, 2025): 'Polymarket Traders Expect the Fed to Pause Rates in 2026' - confirming 87-88% hold probability.",
+      "risk": "Unexpected Dovish Pivot: If the Fed cuts 25bps (12% implied probability), shorts would be squeezed."
     },
     {
-      "ticker": "DESP",
-      "conviction_score": 8,
-      "thesis": "Prosus N.V. has agreed to acquire Despegar.com for $1.7 billion ($19.50/share), representing a significant premium and consolidation in the Latin American travel sector.",
-      "catalyst_details": "Acquisition announced during the week of Dec 23-29, 2024. Deal pending closing conditions.",
-      "sentiment": "Bullish",
-      "prediction_market": "Implied probability high based on definitive agreement; arb spreads likely tight.",
-      "recency_proof": "IMAA Institute (Dec 31, 2024 report covering Dec 23-29): 'Prosus N.V. to Acquire Despegar.com for USD 1.70 Billion.'",
-      "risk": "Regulatory hurdles in Latin American jurisdictions could delay or block the deal."
+      "ticker": "CCL",
+      "conviction_score": 9,
+      "thesis": "Hawaii's 11% tax on cruise ship gross fares and lodging officially takes effect Jan 1, 2026, after a US District Court denied the industry's motion for an injunction. This creates immediate margin compression or pricing friction for Hawaii routes.",
+      "catalyst_details": "Effective Date: Jan 1, 2026. Legal Ruling: District Judge denied injunction Dec 23, reported extensively in legal/tax journals Dec 30.",
+      "sentiment": "Bearish",
+      "prediction_market": "Legal Ruling (Determinative): Injunction Denied (Probability 100%). Market must now price in the active tax liability.",
+      "recency_proof": "VitalLaw (Dec 30, 2025): 'Hawaii... Court Declines to Halt Implementation of New Tax on Cruise Ship Accommodations.'",
+      "risk": "Pass-through Elasticity: If cruise lines successfully pass the 11% fee to customers without reducing booking volumes, earnings impact may be negligible."
     },
     {
-      "ticker": "MSTR",
+      "ticker": "XHB",
       "conviction_score": 7,
-      "thesis": "MicroStrategy plunged 8.2% as Bitcoin failed to reclaim $100k by year-end, leading to book-squaring and volatility in crypto-proxy stocks.",
-      "catalyst_details": "Year-end portfolio rebalancing and Bitcoin failing to hit the psychological $100k milestone in 2024.",
-      "sentiment": "Bearish",
-      "prediction_market": "Polymarket: 'Bitcoin hit $100k in 2024?' odds collapsed to <1% as time expires.",
-      "recency_proof": "Investopedia (Dec 30, 2024): 'MicroStrategy leads Nasdaq decliners, plunging 8.2%.'",
-      "risk": "Sudden spot Bitcoin ETF inflows in first week of Jan 2025."
+      "thesis": "Mortgage rates have dropped to their lowest level of 2025 (<5.5%) as of Dec 31, providing a tailwind for homebuilders heading into the Q1 2026 spring selling season despite the Fed's pause.",
+      "catalyst_details": "Year-End Rate Data (Dec 31, 2025): 30-year fixed rates breached 2025 lows, improving affordability optics for 2026.",
+      "sentiment": "Bullish",
+      "prediction_market": "Polymarket Proxy: 'Fed Rates 2026' (Pause Consensus) stabilizes the long end of the curve, preventing volatility spikes.",
+      "recency_proof": "CBS MoneyWatch (Dec 31, 2025): 'Mortgage rates fall to their lowest level in 2025... less than 5.5%.'",
+      "risk": "Yield Spike: If the 10-year Treasury yield rebounds aggressively in Jan 2026, mortgage rates will reverse, crushing builder sentiment."
     }
   ]
 }
