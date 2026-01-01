@@ -2,3 +2,5 @@ google-genai
 requests
 pydantic
 pytz
+yfinance
+pandas
