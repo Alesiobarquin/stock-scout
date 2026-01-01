@@ -1,21 +1,42 @@
 {
   "catalysts": [
     {
-      "ticker": "IMNM",
-      "market_cap": "$1.95B",
+      "ticker": "AXSM",
+      "current_price": 94.5,
+      "market_cap": "$4.5B",
       "conviction_score": 9,
-      "thesis": "High-conviction Insider Aggression. CEO Clay Siegall (founder of Seagen) purchased ~$100k in open market shares at 52-week highs, signaling anticipation of a breakout or major fundamental development. Despite the bullish filing, price action was muted (-1.9%), creating a divergence between insider sentiment and market reaction.",
-      "catalyst_details": "Form 4 filing on Dec 30/31, 2025, revealing CEO Clay Siegall bought 4,729 shares at $21.15. This follows a $400M financing, extending cash runway to 2028.",
-      "earnings_date": "2026-03-19",
-      "relative_volume": "Normal (1.0x 30d avg)",
-      "stop_loss_trigger": "Close below $19.50 (Recent breakout support)",
+      "thesis": "Positive Pre-NDA meeting minutes for AXS-12 (Narcolepsy) released on Dec 31 de-risk the imminent January 2026 filing. The market has not reacted due to the New Year's holiday.",
+      "catalyst_details": "NDA Submission for AXS-12 expected January 2026; Pre-NDA agreement confirmed Dec 31, 2025.",
+      "absorption_status": "News broke Dec 31 (New Year's Eve) amidst holiday low volume; markets closed Jan 1, leaving the catalyst completely unpriced.",
+      "earnings_date": "Late Feb 2026",
+      "relative_volume": "0.4x 30d avg (Holiday Thin)",
+      "stop_loss_trigger": "Close below $88.00 (Trend support)",
       "sentiment": "Bullish",
-      "prediction_market": "None available",
-      "recency_proof": "https://www.investing.com/news/company-news/immunome-imnm-ceo-siegall-buys-100k-in-shares-93CH-3806442 (Timestamp: 2025-12-31)",
-      "risk": "Clinical data failure (pipeline risk typical of biotech), though CEO buying mitigates.",
-      "expected_upside": "15-20% drift to ~$25.00 on filings digestion",
-      "mispricing_evidence": "Stock closed down -1.94% on the day the Form 4 was filed, failing to price in the CEO's aggression.",
-      "x_sentiment": "Low buzz, largely unnoticed retail discussion."
+      "prediction_market": "N/A",
+      "recency_proof": "BioSpace Dec 31, 2025: AXSM confirms Pre-NDA agreement",
+      "risk": "Unexpected delay in actual January filing submission.",
+      "expected_upside": "10-15% drift on volume return",
+      "mispricing_evidence": "Zero price reaction to material regulatory progress due to holiday timing.",
+      "x_sentiment": "Low chatter (Holiday silence)"
+    },
+    {
+      "ticker": "ASND",
+      "current_price": 138.4,
+      "market_cap": "$7.8B",
+      "conviction_score": 7,
+      "thesis": "TransCon CNP (Achondroplasia) PDUFA in Feb 2026. Stock has drifted since Nov 2025 delay, offering a discounted entry ahead of the final decision.",
+      "catalyst_details": "FDA PDUFA Date: February 28, 2026 (TransCon CNP).",
+      "absorption_status": "Overshadowed by the 3-month review extension announced in Nov; price has stabilized but not run up yet.",
+      "earnings_date": "Feb 2026",
+      "relative_volume": "1.0x 30d avg",
+      "stop_loss_trigger": "Close below $125",
+      "sentiment": "Bullish",
+      "prediction_market": "N/A",
+      "recency_proof": "HCPLive Dec 24, 2025: Confirms Feb 28 PDUFA",
+      "risk": "Further delays or CRL.",
+      "expected_upside": "15-20% run-up into Feb",
+      "mispricing_evidence": "Flat price action despite approaching blockbuster approval date.",
+      "x_sentiment": "Quiet accumulation"
     }
   ]
 }
