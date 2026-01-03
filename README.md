@@ -1,4 +1,4 @@
-# Alpha Scout Terminal
+# Stock Scout Terminal
 
 A hybrid Quant-Fundamental stock scouting platform that identifies unpriced bullish catalysts using AI and validates them with technical analysis.
 
@@ -8,7 +8,7 @@ A hybrid Quant-Fundamental stock scouting platform that identifies unpriced bull
 
 ##  Overview
 
-Alpha Scout identifies high-conviction trading opportunities by combining large-scale news/event analysis (Fundamental) with volatility-adjusted technical levels (Quant). It specifically looks for:
+Stock Scout identifies high-conviction trading opportunities by combining large-scale news/event analysis (Fundamental) with volatility-adjusted technical levels (Quant). It specifically looks for:
 - **PEAD** (Post-Earnings Announcement Drift)
 - **Biotech PDUFA** dates
 - **Insider Aggression**
