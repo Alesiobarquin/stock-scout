@@ -196,7 +196,7 @@ def render_chart(ticker):
 # 5. MAIN APP
 # -----------------------------------------------------------------------------
 def main():
-    st.title("🦅 Alpha Scout Terminal")
+    st.title("Alpha Scout Terminal")
     
     tab1, tab2 = st.tabs(["🚀 Active Signal", "📜 Performance History"])
 
