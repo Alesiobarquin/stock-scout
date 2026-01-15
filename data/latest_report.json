@@ -1,26 +1,26 @@
 {
   "catalysts": [
     {
-      "ticker": "HRMY",
-      "current_price": 38.27,
-      "market_cap": "$3.2B",
-      "conviction_score": 7,
-      "thesis": "Company pre-announced strong Q4 beat and raised 2026 guidance to >$1B (blockbuster status), confirming growth durability which the market has historically doubted.",
-      "catalyst_details": "J.P. Morgan Healthcare Conference Presentation (Jan 13, 2026) and 2026 Guidance Update.",
-      "absorption_status": "Unreacted: Stock +0.8% pre-market despite confirming $1B+ revenue trajectory and pipeline expansion.",
-      "earnings_date": "2026-02-24",
-      "relative_volume": "1.2x (Accumulation)",
-      "stop_loss_trigger": "$36.63 (1.5 ATR)",
+      "ticker": "CRSP",
+      "current_price": 56.89,
+      "market_cap": "$5.4B",
+      "conviction_score": 8,
+      "thesis": "Strong momentum entering 2026 driven by pipeline progress in gene editing (CTX310/320) and positive sentiment from the J.P. Morgan Healthcare Conference.",
+      "catalyst_details": "Featured as a top pick for 2026 in major financial analysis on Jan 12 due to clinical catalysts; continued accumulation following Casgevy rollout updates.",
+      "absorption_status": "Price rose only 1.18% on the news, suggesting the long-term potential of the pipeline expansion is not yet fully priced in amid broader biotech volatility.",
+      "earnings_date": "2026-02-17",
+      "relative_volume": "1.2x",
+      "stop_loss_trigger": "$53.25 (1.5 ATR)",
       "sentiment": "Bullish",
-      "prediction_market": "High confidence in guidance",
-      "recency_proof": "BusinessWire Jan 12, 2026: 'Harmony Guides to Over $1 Billion in WAKIX Revenue in 2026...'",
-      "risk": "Pipeline execution risks",
-      "expected_upside": "+25% (Analyst targets ~$46) | Target: $41.55",
-      "mispricing_evidence": "Trading at ~10x forward earnings despite 20%+ growth and blockbuster product confirmation.",
-      "x_sentiment": "Quiet Accumulation",
-      "atr_value": 1.09,
-      "calculated_stop_loss": 36.63,
-      "calculated_target": 41.55
+      "prediction_market": "75% Bullish",
+      "recency_proof": "Fool.com 2026-01-12",
+      "risk": "Clinical trial setbacks or regulatory delays for early-stage pipeline.",
+      "expected_upside": "25% to $71.00 | Target: $64.17",
+      "mispricing_evidence": "Stock trades significantly below 2024 highs despite de-risked platform and new pipeline assets advancing.",
+      "x_sentiment": "High buzz regarding JPM presentation.",
+      "atr_value": 2.43,
+      "calculated_stop_loss": 53.25,
+      "calculated_target": 64.17
     }
   ]
 }
