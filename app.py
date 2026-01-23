@@ -348,7 +348,7 @@ def main():
             # 4. Display Table
             selection = st.dataframe(
                 view_df,
-                use_container_width=True,
+                width="stretch",
                 hide_index=True,
                 selection_mode="single-row",
                 on_select="rerun",
