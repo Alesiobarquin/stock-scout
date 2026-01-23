@@ -7,3 +7,4 @@ pandas
 streamlit
 plotly
 streamlit-autorefresh
+python-dotenv
