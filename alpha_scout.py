@@ -188,17 +188,40 @@ def get_alpha_scout_response():
 
     tools = [types.Tool(google_search=types.GoogleSearch())]
     
-    response = client.models.generate_content(
-        model=MODEL_ID,
-        contents=prompt,
-        config=types.GenerateContentConfig(
-            system_instruction=system_instruction,
-            tools=tools,
-            response_mime_type="application/json",
-            response_schema=ScoutReport
-        )
-    )
-    return response.parsed
+    max_retries = 5
+    base_delay = 5
+
+    for attempt in range(max_retries):
+        try:
+            print(f"[-] AI Query Attempt {attempt+1}/{max_retries}...")
+            response = client.models.generate_content(
+                model=MODEL_ID,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    system_instruction=system_instruction,
+                    tools=tools,
+                    response_mime_type="application/json",
+                    response_schema=ScoutReport
+                )
+            )
+            return response.parsed
+        except Exception as e:
+            error_str = str(e)
+            if attempt < max_retries - 1:
+                if "503" in error_str or "overloaded" in error_str.lower():
+                    wait_time = base_delay * (2 ** attempt) # 5, 10, 20, 40...
+                    print(f"[!] Model overloaded (503). Retrying in {wait_time}s...")
+                    time.sleep(wait_time)
+                    continue
+                elif "429" in error_str: # Rate limit
+                    wait_time = 30
+                    print(f"[!] Rate limit (429). Cooling down for {wait_time}s...")
+                    time.sleep(wait_time)
+                    continue
+            
+            # If we're out of retries or it's a different error, fail loudly
+            print(f"[!] API call failed after {attempt+1} attempts: {e}")
+            raise e
 
 # --- OUTPUT HANDLERS ---
 def save_to_json(report: ScoutReport):
