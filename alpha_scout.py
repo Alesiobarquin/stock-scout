@@ -208,7 +208,7 @@ def get_alpha_scout_response():
                     response_schema=ScoutReport
                 )
             )
-            return response.parsed
+            return response.parsed, False
         except Exception as e:
             error_str = str(e).lower()
             if attempt < max_retries - 1:
@@ -239,7 +239,7 @@ def get_alpha_scout_response():
                             response_schema=ScoutReport
                         )
                     )
-                    return response.parsed
+                    return response.parsed, True
                 except Exception as backup_e:
                     print(f"[!] Critical: Backup model also failed: {backup_e}")
                     raise backup_e
@@ -254,15 +254,17 @@ def save_to_json(report: ScoutReport):
     with open(DATA_FILE, "w") as f:
         f.write(report.model_dump_json(indent=2))
 
-def format_telegram_message(catalyst: Catalyst) -> str:
+def format_telegram_message(catalyst: Catalyst, is_fallback: bool = False) -> str:
     robinhood_link = f"https://robinhood.com/us/en/stocks/{catalyst.ticker}/"
     try:
         ny_time = datetime.now(pytz.timezone("America/New_York")).strftime('%H:%M %Z')
     except:
         ny_time = datetime.now().strftime('%H:%M UTC')
 
+    model_note = " (Backup Model)" if is_fallback else ""
+
     return (
-        f"🚀 *Stock Scout Signal: ${catalyst.ticker}*\n"
+        f"🚀 *Stock Scout Signal: ${catalyst.ticker}*{model_note}\n"
         f"✅ *API Verified Price:* ${catalyst.current_price:.2f}\n"
         f"📉 *Calculated Stop Loss (ATR):* ${catalyst.calculated_stop_loss:.2f}\n"
         f"🎯 *Target:* ${catalyst.calculated_target:.2f}\n"
@@ -289,7 +291,7 @@ def send_telegram_alert(message: str):
 def main():
     print("[-] Stock Scout initializing (Hybrid Quant-Fundamental Mode)...")
     try:
-        report = get_alpha_scout_response()
+        report, is_fallback = get_alpha_scout_response()
         if not report or not report.catalysts:
             print("[!] No catalysts found.")
             return
@@ -324,7 +326,7 @@ def main():
             # LOG FIRST (Persistent & Duplicate Checked)
             log_to_performance_csv(item)
             # THEN ALERT
-            msg = format_telegram_message(item)
+            msg = format_telegram_message(item, is_fallback=is_fallback)
             send_telegram_alert(msg)
             time.sleep(1)
         
