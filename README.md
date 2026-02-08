@@ -2,7 +2,7 @@
 
 A hybrid Quant-Fundamental stock scouting platform that identifies unpriced bullish catalysts using AI and validates them with technical analysis.
 
- **Quick Link:** [Live Deployment](https://alpha-scout-mrl6d3cjejyksiwqdt94rq.streamlit.app)
+ **Quick Link:** [Live Deployment](https://stock-scout.streamlit.app/)
 
 ---
 
