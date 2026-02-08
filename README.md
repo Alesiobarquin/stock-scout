@@ -1,6 +1,6 @@
 # Stock Scout Terminal
 
-A hybrid Quant-Fundamental stock scouting platform that identifies unpriced bullish catalysts using AI and validates them with technical analysis.
+A  stock scouting platform that identifies unpriced bullish catalysts using AI and validates them with technical analysis.
 
  **Quick Link:** [Live Deployment](https://stock-scout.streamlit.app/)
 
