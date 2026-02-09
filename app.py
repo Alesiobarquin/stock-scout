@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import yfinance as yf
 import streamlit.components.v1 as components
+import csv
 import json
 import os
 import time
@@ -139,6 +140,7 @@ def load_latest_json():
     if not os.path.exists(JSON_PATH):
         return []
     try:
+        # Force reload from disk to avoid stale reads
         with open(JSON_PATH, "r") as f:
             data = json.load(f)
             # Return the full list of catalysts
@@ -150,54 +152,147 @@ def load_latest_json():
         return []
 
 def load_history_csv():
-    """Loads and normalizes the CSV Log."""
+    """
+    Loads the CSV Log with support for both Legacy (10 cols) and New (13 cols) formats.
+    """
     if not os.path.exists(CSV_PATH):
         return pd.DataFrame()
 
     try:
-        # Define expected headers from alpha_scout.py
-        # ["Date", "Ticker", "Entry_Price", "Conviction", "Market_Cap", "ATR_Value", "Stop_Loss", "Target_Price", "Thesis", "Status"]
-        expected_cols = [
-            "Date", "Ticker", "Entry_Price", "Conviction", 
-            "Market_Cap", "ATR_Value", "Stop_Loss_Target", "Target_Price", 
-            "Thesis", "Status"
-        ]
-
-        # Load CSV with header=None since we see raw data starting smoothly
-        # quotechar='"' helps, but we will also manually strip to be safe.
-        df = pd.read_csv(CSV_PATH, header=None, names=expected_cols, quotechar='"', skipinitialspace=True)
+        # 1. Read raw lines to detect format version per row? 
+        # Actually, pandas is smart. Let's try reading with new headers.
+        # If passed columns > actual data, it fills NaN.
+        # If passed columns < actual data, it weirds out.
         
-        # 1. Handle potential header row if file was recreated properly
-        if not df.empty and str(df.iloc[0]['Date']).strip() == 'Date':
-            df = df.iloc[1:].reset_index(drop=True)
+        # New Schema (13 Cols)
+        new_cols = [
+            "Date", "Ticker", "Entry_Price", "Conviction", 
+            "Market_Cap", "ATR_Value", "Stop_Loss_Target", "DeRisk_Target", 
+            "Thesis", "Status", "Shares_Count", "Position_Cost", "Risk_R_Unit"
+        ]
+        
+        # Legacy Schema (10 Cols - for reference)
+        # ["Date", "Ticker", "Entry_Price", "Conviction", "Market_Cap", "ATR_Value", "Stop_Loss", "Target_Price", "Thesis", "Status"]
+        
+        # We'll read without header, then map manually based on width.
+        df_raw = pd.read_csv(CSV_PATH, header=None, quotechar='"', skipinitialspace=True)
+        
+        if df_raw.empty:
+            return pd.DataFrame()
 
-        # 2. Aggressive Cleaning of Tickers (User specifically asked for this)
+        # Handle Header Row if present
+        if str(df_raw.iloc[0][0]).strip() == 'Date':
+            df_raw = df_raw.iloc[1:].reset_index(drop=True)
+
+        processed_rows = []
+        
+        for _, row in df_raw.iterrows():
+            # Convert row to list, removing any NaNs at end if pandas added them
+            vals = row.dropna().tolist()
+            
+            # --- LEGACY ROW (10 Cols) ---
+            if len(vals) == 10:
+                processed_rows.append({
+                    "Date": vals[0], "Ticker": vals[1], "Entry_Price": vals[2], "Conviction": vals[3],
+                    "Market_Cap": vals[4], "ATR_Value": vals[5], "Stop_Loss_Target": vals[6], 
+                    "DeRisk_Target": vals[7], # Old Target -> New DeRisk (Breakeven) trigger for visual simplicity
+                    "Thesis": vals[8], "Status": vals[9],
+                    "Shares_Count": 0, "Position_Cost": 0.0, "Risk_R_Unit": 0.0 # Default for legacy
+                })
+            
+            # --- NEW ROW (13 Cols) ---
+            elif len(vals) >= 13:
+                processed_rows.append({
+                    "Date": vals[0], "Ticker": vals[1], "Entry_Price": vals[2], "Conviction": vals[3],
+                    "Market_Cap": vals[4], "ATR_Value": vals[5], "Stop_Loss_Target": vals[6], 
+                    "DeRisk_Target": vals[7], "Thesis": vals[8], "Status": vals[9],
+                    "Shares_Count": vals[10], "Position_Cost": vals[11], "Risk_R_Unit": vals[12]
+                })
+
+        df = pd.DataFrame(processed_rows)
+        
+        if df.empty:
+            return pd.DataFrame()
+
+        # Cleaning & Typing
         if 'Ticker' in df.columns:
             df['Ticker'] = df['Ticker'].astype(str).str.strip().str.replace('"', '').str.replace("'", "")
 
-        # 3. Clean other string columns just in case
         for col in ['Thesis', 'Status', 'Market_Cap']:
             if col in df.columns:
                 df[col] = df[col].astype(str).str.strip().str.replace('"', '')
 
-        # Standardize formatting
         if 'Date' in df.columns:
             df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
             df = df.sort_values(by='Date', ascending=False)
 
-        # Ensure numeric columns are actually numeric
-        cols_to_clean = ['Entry_Price', 'Target_Price', 'ATR_Value', 'Stop_Loss_Target']
+        # Numeric Conversion
+        cols_to_clean = ['Entry_Price', 'DeRisk_Target', 'ATR_Value', 'Stop_Loss_Target', 'Shares_Count', 'Position_Cost', 'Risk_R_Unit']
         for c in cols_to_clean:
             if c in df.columns:
-                # Remove '$' if present from price columns before converting
                 df[c] = df[c].astype(str).str.replace('$', '').str.replace(',', '')
-                df[c] = pd.to_numeric(df[c], errors='coerce')
+                df[c] = pd.to_numeric(df[c], errors='coerce').fillna(0.0)
 
         return df
+
     except Exception as e:
-        # Graceful failure
-        # st.info(f"Could not load history: {e}") 
+        # st.error(f"CSV Read Error: {e}")
         return pd.DataFrame()
+
+def mark_trade_closed(ticker_to_close):
+    """
+    Updates the CSV to mark a trade as CLOSED.
+    Uses robust reading/writing to preserve quotes.
+    """
+    if not os.path.exists(CSV_PATH):
+        return
+        
+    try:
+        # Read all lines as raw strings to minimize parsing errors during write-back? 
+        # Safer to use csv module directly for read/write to preserve structure.
+        rows = []
+        with open(CSV_PATH, 'r', encoding='utf-8') as f:
+            reader = csv.reader(f)
+            rows = list(reader)
+            
+        updated = False
+        header = rows[0]
+        
+        # Find index of Ticker and Status columns
+        try:
+            # Assuming standard order if header is missing or just assuming indices
+            # But let's look for header
+            ticker_idx = 1
+            status_idx = 9 
+            
+            if "Ticker" in header:
+                ticker_idx = header.index("Ticker")
+            if "Status" in header:
+                status_idx = header.index("Status")
+        except:
+            pass # Fallback to indices 1 and 9
+            
+        for row in rows:
+            if len(row) > status_idx:
+                # Clean ticker from CSV (remove quotes if manual parsing didn't)
+                csv_ticker = row[ticker_idx].replace('"', '').replace("'", "").strip()
+                csv_status = row[status_idx].replace('"', '').replace("'", "").strip()
+                
+                if csv_ticker == ticker_to_close and csv_status == 'OPEN':
+                    row[status_idx] = "CLOSED"
+                    updated = True
+        
+        if updated:
+            with open(CSV_PATH, 'w', newline='', encoding='utf-8') as f:
+                writer = csv.writer(f, quoting=csv.QUOTE_ALL)
+                writer.writerows(rows)
+            # st.toast(f"Closed trade for {ticker_to_close}")
+            time.sleep(0.5) # Give file system a moment
+            st.cache_data.clear()
+            st.rerun()
+            
+    except Exception as e:
+        st.error(f"Failed to close trade: {e}")
 
 # -----------------------------------------------------------------------------
 # 3. CACHED DATA WRAPPER
@@ -325,10 +420,47 @@ def main():
             </div>
         """, unsafe_allow_html=True)
     
+    # --- HOW IT WORKS EXPANDER ---
+    with st.expander("ℹ️ How Stock Scout Works", expanded=False):
+        st.markdown("""
+        ### 🦅 The Scout (Technical Scanner)
+        The system scans **8,000+ stocks** every morning at 9:00 AM EST looking for:
+        - **Volatility Contraction**: Tighter price action indicating potential explosive moves.
+        - **Momentum & RS**: Stocks outperforming the S&P 500.
+        - **Volume**: Unusual buying pressure.
+
+        ### 🧠 The Analyst (AI Agent)
+        Once a chart setup is found, an AI Agent reads:
+        - Recent News & PRs
+        - Earnings & SEC Filings
+        - Social Sentiment
+        It assigns a **Conviction Score (0-10)** based on the catalyst strength.
+
+        ### 🛡️ The Execution (Risk Management)
+        - **Risk Unit**: Every trade risks exactly **2%** of the portfolio (2R).
+        - **Hard Stops**: If a stock hits its stop loss, it is cut immediately. 
+        
+        #### Status Legend
+        - 🟢 **OPEN**: Active trade. Monitor the "Runner Progress".
+        - 🔴 **STOPPED_OUT**: Trade hit stop loss. Loss is realized.
+        - ⚪ **CLOSED**: Trade was manually closed or hit profit target.
+        """)
+
     tab_hist, tab_active = st.tabs(["📜 Performance History", "🚀 Active Signals"])
 
     # --- TAB 2: ACTIVE SIGNALS (FROM JSON) ---
     with tab_active:
+        # --- METRIC: CAPITAL AT RISK ---
+        # Sum of Position_Cost for all OPEN trades
+        total_active_exposure = 0.0
+        if not df.empty and 'Position_Cost' in df.columns and 'Status' in df.columns:
+            open_pos = df[df['Status'] == 'OPEN']
+            if not open_pos.empty:
+                total_active_exposure = open_pos['Position_Cost'].sum()
+        
+        st.metric("Capital at Risk (Total Active Exposure)", f"${total_active_exposure:,.2f}")
+        st.divider()
+
         if signals:
             # Fetch live prices for all active signals at once
             active_tickers = [s.get("ticker") for s in signals if s.get("ticker")]
@@ -379,6 +511,30 @@ def main():
 <span class="conviction-badge {badge_class}">Conviction {conviction}/10</span>
 </div>
 </div>
+""", unsafe_allow_html=True)
+
+                    # --- ACTIVE TRADE CHECK ---
+                    # Check if this ticker is currently OPEN in our CSV
+                    is_open_trade = False
+                    trade_shares = 0
+                    trade_cost = 0.0
+                    trade_risk = 0.0
+                    
+                    if not df.empty:
+                        open_trade = df[(df['Ticker'] == ticker) & (df['Status'] == 'OPEN')]
+                        if not open_trade.empty:
+                            is_open_trade = True
+                            row = open_trade.iloc[0]
+                            trade_shares = int(row.get('Shares_Count', 0))
+                            trade_cost = float(row.get('Position_Cost', 0.0))
+                            trade_risk = float(row.get('Risk_R_Unit', 0.0))
+                            # Override target/stop from CSV if available for consistency
+                            entry = float(row.get('Entry_Price', entry))
+                            target = float(row.get('DeRisk_Target', target)) # This is Breakeven trigger now
+                            stop_val = float(row.get('Stop_Loss_Target', stop_val))
+
+                    # METRICS GRID
+                    st.markdown(f"""
 <div class="metrics-grid">
 <div class="metric-item">
 <div class="metric-label">Live Price</div>
@@ -389,16 +545,56 @@ def main():
 <div class="metric-value">${entry:.2f}</div>
 </div>
 <div class="metric-item">
-<div class="metric-label">Target</div>
-<div class="metric-value" style="color: #2ecc71;">${target:.2f}</div>
+<div class="metric-label">Breakeven Trigger</div>
+<div class="metric-value" style="color: #f1c40f;">${target:.2f}</div>
 </div>
 <div class="metric-item">
 <div class="metric-label">Stop Loss</div>
 <div class="metric-value" style="color: #e74c3c;">${stop_val:.2f}</div>
 </div>
 </div>
-</div>
 """, unsafe_allow_html=True)
+
+                    # --- RUNNER VISUALIZATION ---
+                    # Progress towards DeRisk Target (0% = Entry, 100% = DeRisk, <0% = Losing)
+                    if entry > 0 and (target - entry) != 0:
+                        progress = (live_price - entry) / (target - entry)
+                    else:
+                        progress = 0
+                        
+                    # Clamp for bar display (0.0 to 1.0)
+                    bar_fill = max(0.0, min(1.0, progress))
+                    bar_color = "#e74c3c" # Red default
+                    if progress > 0 and progress < 1: bar_color = "#f39c12" # Orange/Yellow working
+                    if progress >= 1: bar_color = "#2ecc71" # Green achieved
+                    
+                    # Custom HTML Progress Bar
+                    st.markdown(f"""
+                    <div style="margin-bottom: 20px;">
+                        <div style="display:flex; justify-content:space-between; margin-bottom:5px; font-size:12px; color:#888;">
+                            <span>Entry</span>
+                            <span>RUNNER PROGRESS</span>
+                            <span>Breakeven Trigger</span>
+                        </div>
+                        <div style="background-color: #333; width: 100%; height: 8px; border-radius: 4px; overflow: hidden;">
+                            <div style="background-color: {bar_color}; width: {bar_fill*100}%; height: 100%; border-radius: 4px;"></div>
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+
+                    # --- RISK MANAGEMENT CARD (If Open) ---
+                    if is_open_trade:
+                        st.info(f"⚡ **ACTIVE POSITION:** Holding **{trade_shares} shares** (Cost: ${trade_cost:,.0f}) | Risk: **${trade_risk:.2f}/share**")
+                        
+                        # CLOSE BUTTON
+                        c_cls, _ = st.columns([1, 4])
+                        with c_cls:
+                            if st.button("🔴 MARK AS CLOSED", key=f"close_{ticker}"):
+                                mark_trade_closed(ticker)
+                    
+                    st.markdown("</div>", unsafe_allow_html=True) # End Card HTML section (metrics part)
+
 
                     # Summary & Actions within Expander
                     with st.expander(f"Thinking & Technicals", expanded=(i==0)):
@@ -461,64 +657,70 @@ def main():
             df['Live Price'] = df['Ticker'].map(live_prices_map)
             
             # --- P/L CALCULATION LOGIC ---
-            def calc_bracket_pl(row):
-                """Respects BOTH Target and Stop Loss."""
+            def calc_strategy_return(row):
+                """
+                Calculates Strategy Return %. 
+                - If STOPPED_OUT: (Stop - Entry) / Entry
+                - If OPEN but Live < Stop: (Stop - Entry) / Entry  [Virtual Stop]
+                - If OPEN and Safe: (Live - Entry) / Entry
+                """
                 try:
-                    curr = float(row['Live Price'])
-                    ent = float(row['Entry_Price'])
-                    tgt = float(row['Target_Price']) if pd.notnull(row['Target_Price']) else None
-                    stop = float(row['Stop_Loss_Target']) if pd.notnull(row['Stop_Loss_Target']) else None
-
+                    status = str(row.get('Status', '')).strip().upper()
+                    ent = float(row.get('Entry_Price', 0.0))
                     if ent <= 0: return 0.0
                     
-                    # 1. Take Profit Hit?
-                    if tgt and curr >= tgt:
-                        return ((tgt - ent) / ent) * 100
+                    stop_loss = float(row.get('Stop_Loss_Target', 0.0))
                     
-                    # 2. Stop Loss Hit?
-                    if stop and curr <= stop:
-                        return ((stop - ent) / ent) * 100
-
-                    # 3. Still Open
+                    # 1. Officially Stopped
+                    if 'STOPPED_OUT' in status:
+                        return ((stop_loss - ent) / ent) * 100
+                    
+                    # 2. Virtual Stop (Open but violated)
+                    # Note: We check if Live Price is valid (>0) to avoid false triggers on missing data
+                    curr = float(row.get('Live Price', 0.0))
+                    if 'OPEN' in status and curr > 0 and stop_loss > 0 and curr < stop_loss:
+                         return ((stop_loss - ent) / ent) * 100
+                    
+                    # 3. Normal Live Return
                     return ((curr - ent) / ent) * 100
                 except:
                     return 0.0
 
-            def calc_runners_pl(row):
-                """Respects Stop Loss ONLY (Let winners run)."""
-                try:
-                    curr = float(row['Live Price'])
-                    ent = float(row['Entry_Price'])
-                    stop = float(row['Stop_Loss_Target']) if pd.notnull(row['Stop_Loss_Target']) else None
+            df['Strategy Return %'] = df.apply(calc_strategy_return, axis=1)
 
-                    if ent <= 0: return 0.0
-                    
-                    # 1. Stop Loss Hit?
-                    if stop and curr <= stop:
-                        return ((stop - ent) / ent) * 100
+            # --- UI DATA REFINEMENTS ---
+            
+            # 1. Status Badges
+            def get_status_badge(s):
+                s = str(s).strip().upper()
+                if s == 'OPEN': return "🟢 OPEN"
+                if s == 'STOPPED_OUT': return "🔴 STOPPED_OUT"
+                if s == 'CLOSED': return "⚪ CLOSED"
+                return s
+            
+            df['Status'] = df['Status'].apply(get_status_badge)
 
-                    # 2. Still Open (Ignore Target)
-                    return ((curr - ent) / ent) * 100
-                except:
-                    return 0.0
-
-            df['P/L (Bracket)'] = df.apply(calc_bracket_pl, axis=1)
-            df['P/L (Runners)'] = df.apply(calc_runners_pl, axis=1)
+            # 2. Handle Legacy Zeros (Clean up display)
+            cols_to_blank = ['Shares_Count', 'Position_Cost']
+            for c in cols_to_blank:
+                if c in df.columns:
+                     df[c] = df[c].apply(lambda x: None if (isinstance(x, (int, float)) and x == 0) else x)
 
             # 3. Select & Order Columns
             display_cols = [
                 "Date", "Ticker", "Entry_Price", "Live Price", 
-                "Target_Price", "Stop_Loss_Target", "ATR_Value", 
-                "P/L (Bracket)", "P/L (Runners)"
+                "DeRisk_Target", "Stop_Loss_Target", 
+                "Shares_Count", "Position_Cost",
+                "Strategy Return %", "Status"
             ]
             
             # Filter columns that actually exist
             valid_cols = [c for c in display_cols if c in df.columns]
             view_df = df[valid_cols].copy()
 
-            # --- NEW: Total P/L Summary & Period ---
-            total_bracket = view_df["P/L (Bracket)"].sum()
-            total_runners = view_df["P/L (Runners)"].sum()
+            # --- TOTAL P/L SUMMARY ---
+            # Just a sum of percentages for now (approximate portfolio heat)
+            total_pl = view_df["Strategy Return %"].sum()
             
             # Calculate Period
             if 'Date' in view_df.columns and not view_df['Date'].empty:
@@ -541,18 +743,44 @@ def main():
             else:
                 period_str = "N/A"
 
-            c1, c2, c3 = st.columns(3)
-            c1.metric("Total P/L (Bracket)", f"{total_bracket:.2f}%", help="Sum of P/L respecting both Targets and Stops.")
-            c2.metric("Total P/L (Runners)", f"{total_runners:.2f}%", help="Sum of P/L respecting ONLY Stops (letting winners run).")
-            c3.metric("Time Elapsed", period_str, help=f"Time between first and last alert.\n({min_date.strftime('%Y-%m-%d')} to {max_date.strftime('%Y-%m-%d')})")
+            c1, c2 = st.columns(2)
+            c1.metric("Cumulative Unrealized P/L", f"{total_pl:.2f}%", help="Sum of current open/closed performance %.")
+            c2.metric("Time Elapsed", period_str, help=f"Time between first and last alert.")
             
             st.divider()
             # ------------------------------
 
             # 4. Display Table
+            # Apply styling
+            def style_status_rows(row):
+                status = str(row.get('Status', '')).strip().upper()
+                live = float(row.get('Live Price', 0.0))
+                stop = float(row.get('Stop_Loss_Target', 0.0))
+
+                if "STOPPED_OUT" in status:
+                    # Very subtle red background
+                    return ['background-color: rgba(231, 76, 60, 0.08)'] * len(row)
+                
+                # Check for Violated Stops in OPEN trades
+                if "OPEN" in status and live > 0 and stop > 0 and live < stop:
+                    # Very subtle red background for violated stops
+                    return ['background-color: rgba(231, 76, 60, 0.08)'] * len(row)
+
+                return [''] * len(row)
+            
+            def style_return_col(val):
+                if not isinstance(val, (int, float)): return ''
+                if val > 0: return 'color: #2ecc71;' # Green
+                if val < 0: return 'color: #e74c3c;' # Red
+                return ''
+
+            # Create styled dataframe (Row style + Column style)
+            styled_view = view_df.style.apply(style_status_rows, axis=1)\
+                                       .map(style_return_col, subset=['Strategy Return %'])
+            
             selection = st.dataframe(
-                view_df,
-                width="stretch",
+                styled_view,
+                width="stretch", # Fixed deprecation warning: use width='stretch' instead of use_container_width=True
                 hide_index=True,
                 selection_mode="single-row",
                 on_select="rerun",
@@ -560,19 +788,15 @@ def main():
                     "Date": st.column_config.DatetimeColumn("Alert Date", format="MM-DD HH:mm"),
                     "Entry_Price": st.column_config.NumberColumn("Entry", format="$%.2f"),
                     "Live Price": st.column_config.NumberColumn("Live", format="$%.2f"),
-                    "Target_Price": st.column_config.NumberColumn("Target", format="$%.2f"),
-                    "Stop_Loss_Target": st.column_config.TextColumn("Stop Loss"),
-                    "ATR_Value": st.column_config.NumberColumn("ATR", format="%.2f"),
-                    "P/L (Bracket)": st.column_config.NumberColumn(
-                        "P/L (Bracket)", 
+                    "DeRisk_Target": st.column_config.NumberColumn("DeRisk Lv", format="$%.2f"),
+                    "Stop_Loss_Target": st.column_config.NumberColumn("Stop Loss", format="$%.2f"),
+                    "Shares_Count": st.column_config.NumberColumn("Shares", format="%d"),
+                    "Position_Cost": st.column_config.NumberColumn("Cost Basis", format="$%.2f"), # Changed to .2f to match metric currency feel if needed, usually .0f is fine for round numbers but user asked for currency
+                    "Strategy Return %": st.column_config.NumberColumn(
+                        "Strategy Return %", 
                         format="%.2f%%",
-                        help="P/L capped at Target and Stop."
                     ),
-                    "P/L (Runners)": st.column_config.NumberColumn(
-                        "P/L (Runners)", 
-                        format="%.2f%%",
-                        help="P/L capped at Stop ONLY."
-                    )
+                    "Status": st.column_config.TextColumn("Status")
                 }
             )
 
