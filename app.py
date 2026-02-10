@@ -760,6 +760,7 @@ def main():
             
             total_initial_cost = 0.0
             total_holdings_value = 0.0
+            unrealized_pl = 0.0
             
             if 'Status' in view_df.columns and 'Live Price' in view_df.columns and 'Shares_Count' in view_df.columns:
                 # Filter for OPEN trades (checking specifically for the Badge string or raw status if we reused df)
@@ -780,11 +781,20 @@ def main():
                     
                     # Calculate Initial Cost of Open Positions
                     if 'Position_Cost' in open_trades.columns:
+                        # Use recorded position cost if available
                         total_initial_cost = open_trades['Position_Cost'].fillna(0.0).sum()
                     else:
-                        total_initial_cost = 0.0
+                        # Fallback to calculated cost
+                        total_initial_cost = (open_trades['Entry_Price'].fillna(0.0) * open_trades['Shares_Count'].fillna(0.0)).sum()
+
+                    # Calculate P/L for Open Positions (Unrealized - Real Market Value)
+                    # We use total value - total cost to reflect the TRUE account swing, 
+                    # ignoring "Virtual Stop" logic which might be capping losses in the table.
+                    unrealized_pl = total_holdings_value - total_initial_cost
+
                 else:
                     total_initial_cost = 0.0
+                    unrealized_pl = 0.0
 
             # Calculate Period
             if 'Date' in view_df.columns and not view_df['Date'].empty:
@@ -814,15 +824,15 @@ def main():
                 st.metric(
                     label="Total Equity",
                     value=f"${total_holdings_value:,.2f}",
-                    delta=f"${total_pl_dollars:,.2f}" if total_pl_dollars >= 0 else f"-${abs(total_pl_dollars):,.2f}",
+                    delta=f"${unrealized_pl:,.2f}" if unrealized_pl >= 0 else f"-${abs(unrealized_pl):,.2f}",
                     help=f"Combined Initial Cost of Open Positions: ${total_initial_cost:,.2f}"
                 )
             
             with c2:
                 st.metric(
-                    label="Net P/L ($)",
-                    value=f"${total_pl_dollars:,.2f}",
-                    help="Total Realized + Unrealized P/L"
+                    label="Active P/L ($)",
+                    value=f"${unrealized_pl:,.2f}" if unrealized_pl >= 0 else f"-${abs(unrealized_pl):,.2f}",
+                    help="Net P/L of currently open positions (Live - Entry)"
                 )
 
             with c3:
