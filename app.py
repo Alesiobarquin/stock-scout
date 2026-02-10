@@ -718,6 +718,10 @@ def main():
             valid_cols = [c for c in display_cols if c in df.columns]
             view_df = df[valid_cols].copy()
 
+            # --- TRANSFORM TICKER TO LINK ---
+            if 'Ticker' in view_df.columns:
+                 view_df['Ticker'] = view_df['Ticker'].apply(lambda t: f"https://robinhood.com/us/en/stocks/{t}/")
+
             # --- TOTAL P/L SUMMARY ---
             # Just a sum of percentages for now (approximate portfolio heat)
             total_pl = view_df["Strategy Return %"].sum()
@@ -786,6 +790,10 @@ def main():
                 on_select="rerun",
                 column_config={
                     "Date": st.column_config.DatetimeColumn("Alert Date", format="MM-DD HH:mm"),
+                    "Ticker": st.column_config.LinkColumn(
+                        "Ticker", 
+                        display_text="https://robinhood\\.com/us/en/stocks/(.*?)/"
+                    ),
                     "Entry_Price": st.column_config.NumberColumn("Entry", format="$%.2f"),
                     "Live Price": st.column_config.NumberColumn("Live", format="$%.2f"),
                     "DeRisk_Target": st.column_config.NumberColumn("DeRisk Lv", format="$%.2f"),

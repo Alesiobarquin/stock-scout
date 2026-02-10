@@ -469,6 +469,7 @@ def format_telegram_message(catalyst: Catalyst, is_fallback: bool = False) -> st
 
     return (
         f"🚀 *Stock Scout Signal: ${catalyst.ticker}*{model_note}\n"
+        f"🏹 *Robinhood:* {robinhood_link}\n"
         f"✅ *Entry:* ${catalyst.current_price:.2f}\n"
         f"� *Suggested Order:* Buy {catalyst.shares_count} Shares (~${catalyst.position_cost:.0f} Total)\n"
         f"🛑 *Stop Loss:* ${catalyst.calculated_stop_loss:.2f} (Risk: ${catalyst.risk_r_unit:.2f}/share)\n"
