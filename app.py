@@ -81,7 +81,7 @@ st.markdown("""
     /* Metrics Grid */
     .metrics-grid {
         display: grid;
-        grid-template-columns: repeat(4, 1fr);
+        grid-template-columns: repeat(3, 1fr);
         gap: 15px;
         margin-bottom: 20px;
     }
@@ -423,9 +423,14 @@ def main():
             </div>
         """, unsafe_allow_html=True)
     
-    # --- HOW IT WORKS EXPANDER ---
-    with st.expander("ℹ️ How Stock Scout Works", expanded=False):
+    # --- TABS CONFIGURATION ---
+    tab_hist, tab_active, tab_info = st.tabs(["📜 Performance History", "🚀 Active Signals", "ℹ️ How it Works"])
+
+    # --- TAB 3: HOW IT WORKS ---
+    with tab_info:
         st.markdown("""
+         NOTE: This portfolio is currently operting with a simulated budget of $500.
+
         ### 🦅 The Scout (Technical Scanner)
         The system scans **8,000+ stocks** every morning at 9:00 AM EST looking for:
         - **Volatility Contraction**: Tighter price action indicating potential explosive moves.
@@ -447,9 +452,10 @@ def main():
         - 🟢 **OPEN**: Active trade. Monitor the "Runner Progress".
         - 🔴 **STOPPED_OUT**: Trade hit stop loss. Loss is realized.
         - ⚪ **CLOSED**: Trade was manually closed or hit profit target.
-        """)
 
-    tab_hist, tab_active = st.tabs(["📜 Performance History", "🚀 Active Signals"])
+        NOTE: Future Plans: Add user login so individuals can set budgets, define risk tolerance, and further customize their trading experience.
+        
+        """)
 
     # --- TAB 2: ACTIVE SIGNALS (FROM JSON) ---
     with tab_active:
@@ -510,8 +516,12 @@ def main():
 <div class="signal-card">
 <div class="signal-header">
 <div style="display: flex; align-items: center; gap: 15px;">
-<span class="ticker-symbol">${ticker}</span>
+<a href="https://robinhood.com/us/en/stocks/{ticker}/" target="_blank" class="ticker-symbol" style="text-decoration:none; color:#FFFFFF;">${ticker}</a>
 <span class="conviction-badge {badge_class}">Conviction {conviction}/10</span>
+</div>
+<div style="text-align: right; color: #8B949E; font-size: 14px;">
+<div>{signal.get('market_cap', 'N/A')} Cap</div>
+<div>⏱️ {signal.get('hold_time_estimate', 'N/A')}</div>
 </div>
 </div>
 """, unsafe_allow_html=True)
@@ -555,6 +565,14 @@ def main():
 <div class="metric-label">Stop Loss</div>
 <div class="metric-value" style="color: #e74c3c;">${stop_val:.2f}</div>
 </div>
+<div class="metric-item">
+<div class="metric-label">Suggested Order</div>
+<div class="metric-value" style="font-size: 16px;">{signal.get('shares_count', 0)} shs <span style="color: #888; font-size: 12px;">(${signal.get('position_cost', 0):,.0f})</span></div>
+</div>
+<div class="metric-item">
+<div class="metric-label">Risk / Share</div>
+<div class="metric-value" style="color: #e74c3c; font-size: 16px;">${signal.get('risk_r_unit', 0):.2f}</div>
+</div>
 </div>
 """, unsafe_allow_html=True)
 
@@ -586,39 +604,22 @@ def main():
                     """, unsafe_allow_html=True)
 
 
+
                     # --- RISK MANAGEMENT CARD (If Open) ---
                     if is_open_trade:
                         st.info(f"⚡ **ACTIVE POSITION:** Holding **{trade_shares} shares** (Cost: ${trade_cost:,.0f}) | Risk: **${trade_risk:.2f}/share**")
-                        
-                        # CLOSE BUTTON
-                        c_cls, _ = st.columns([1, 4])
-                        with c_cls:
-                            if st.button("🔴 MARK AS CLOSED", key=f"close_{ticker}"):
-                                mark_trade_closed(ticker)
                     
                     st.markdown("</div>", unsafe_allow_html=True) # End Card HTML section (metrics part)
 
 
-                    # Summary & Actions within Expander
-                    with st.expander(f"Thinking & Technicals", expanded=(i==0)):
-                        
-                        c_actions, c_gap = st.columns([1, 3])
-                        with c_actions:
-                            st.link_button(
-                                f"Trade ${ticker} on Robinhood 🏹", 
-                                f"https://robinhood.com/us/en/stocks/{ticker}/",
-                                type="primary", 
-                                use_container_width=True
-                            )
-                        
-                        st.divider()
 
-                        # Additional keys from JSON for context box
-                        risks = signal.get("risk", "N/A")
-                        absorption = signal.get("absorption_status", "N/A")
+                    # Summary & Actions (Directly in card now)
+                    # Additional keys from JSON for context box
+                    risks = signal.get("risk", "N/A")
+                    absorption = signal.get("absorption_status", "N/A")
 
-                        # Content - Styled Box
-                        st.markdown(f"""
+                    # Content - Styled Box
+                    st.markdown(f"""
 <div class="thesis-box" style="margin-top: 15px;">
 <h4 style="margin-top:0; color: #3498db;">📝 Investment Thesis</h4>
 <p style="color: #cfd8dc; font-size: 1.05em; line-height: 1.6;">{thesis}</p>
@@ -634,11 +635,12 @@ def main():
 </div>
 </div>
 <p style="margin-top: 15px; font-size: 0.9em; color: #ffab91;"><strong>⚠️ Risks:</strong> {risks}</p>
+<div style="margin-top: 15px; text-align: right;">
+<a href="{signal.get('recency_proof', '#')}" target="_blank" style="color: #3498db; text-decoration: none; font-size: 0.9em;">🔗 View Proof / Source</a>
+</div>
 </div>
 """, unsafe_allow_html=True)
                         
-                        st.write("### Technical Chart")
-                        render_chart(ticker)
 
                     st.markdown("</div>", unsafe_allow_html=True) # Close card container
 
