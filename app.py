@@ -798,7 +798,7 @@ def main():
                     "Live Price": st.column_config.NumberColumn("Live", format="$%.2f"),
                     "DeRisk_Target": st.column_config.NumberColumn("DeRisk Lv", format="$%.2f"),
                     "Stop_Loss_Target": st.column_config.NumberColumn("Stop Loss", format="$%.2f"),
-                    "Shares_Count": st.column_config.NumberColumn("Shares", format="%d"),
+                    "Shares_Count": st.column_config.NumberColumn("Shares", format="%.4f"),
                     "Position_Cost": st.column_config.NumberColumn("Cost Basis", format="$%.2f"), # Changed to .2f to match metric currency feel if needed, usually .0f is fine for round numbers but user asked for currency
                     "Strategy Return %": st.column_config.NumberColumn(
                         "Strategy Return %", 

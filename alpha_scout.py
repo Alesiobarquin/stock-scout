@@ -26,7 +26,7 @@ DATA_FILE = "data/latest_report.json"
 PERFORMANCE_LOG_FILE = "data/performance_log.csv"
 
 # Risk Management Configuration
-ACCOUNT_SIZE = float(os.getenv("ACCOUNT_SIZE", 1000.0))
+ACCOUNT_SIZE = float(os.getenv("ACCOUNT_SIZE", 500.0))
 RISK_PER_TRADE = 0.02       # 2% risk of account equity per trade
 MAX_OPEN_POSITIONS = 3      # Max active trades
 HARD_STOP_CAP = 0.07        # Max 7% stop loss width
@@ -58,7 +58,7 @@ class Catalyst(BaseModel):
     breakeven_trigger: Optional[float] = None    # Replaces calculated_target
     
     # Position Sizing Fields
-    shares_count: Optional[int] = None
+    shares_count: Optional[float] = None
     position_cost: Optional[float] = None
     risk_r_unit: Optional[float] = None          # Dollar risk per share
 
@@ -275,7 +275,8 @@ def enrich_with_technical_data(catalyst: Catalyst) -> Optional[Catalyst]:
             
         # 3. Position Sizing
         risk_amount = ACCOUNT_SIZE * RISK_PER_TRADE
-        shares_to_buy = int(risk_amount / risk_per_share)
+        # Fractionals allowed:
+        shares_to_buy = risk_amount / risk_per_share
         
         # 4. Cost Basis Constraint (Max 20% allocation)
         projected_cost = shares_to_buy * current_price
@@ -283,10 +284,10 @@ def enrich_with_technical_data(catalyst: Catalyst) -> Optional[Catalyst]:
         
         if projected_cost > max_allocation:
             # Cap shares to max allocation
-            shares_to_buy = int(max_allocation / current_price)
+            shares_to_buy = max_allocation / current_price
             projected_cost = shares_to_buy * current_price
             
-        if shares_to_buy < 1:
+        if shares_to_buy < 0.0001:
             print(f"[!] Position size too small for {catalyst.ticker}. Skipping.")
             return None
 
@@ -301,7 +302,7 @@ def enrich_with_technical_data(catalyst: Catalyst) -> Optional[Catalyst]:
         catalyst.breakeven_trigger = round(breakeven_trigger, 2)
         
         # Position Metrics
-        catalyst.shares_count = shares_to_buy
+        catalyst.shares_count = round(shares_to_buy, 4)
         catalyst.position_cost = round(projected_cost, 2)
         catalyst.risk_r_unit = round(risk_per_share, 2)
         
