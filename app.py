@@ -7,6 +7,9 @@ import json
 import os
 import time
 from streamlit_autorefresh import st_autorefresh
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # -----------------------------------------------------------------------------
 # 1. PAGE CONFIGURATION & STYLING
@@ -663,30 +666,47 @@ def main():
                 - If STOPPED_OUT: (Stop - Entry) / Entry
                 - If OPEN but Live < Stop: (Stop - Entry) / Entry  [Virtual Stop]
                 - If OPEN and Safe: (Live - Entry) / Entry
+                - If CLOSED: N/A (or 0 if missing exit data)
                 """
                 try:
                     status = str(row.get('Status', '')).strip().upper()
                     ent = float(row.get('Entry_Price', 0.0))
-                    if ent <= 0: return 0.0
+                    shares = float(row.get('Shares_Count', 0.0))
                     
+                    if ent <= 0: return 0.0, 0.0 # Return P/L %, P/L $
+
                     stop_loss = float(row.get('Stop_Loss_Target', 0.0))
                     
-                    # 1. Officially Stopped
+                    # 1. Officially Stopped (Realized)
                     if 'STOPPED_OUT' in status:
-                        return ((stop_loss - ent) / ent) * 100
+                        pct = ((stop_loss - ent) / ent) * 100
+                        pl_dollar = (stop_loss - ent) * shares
+                        return pct, pl_dollar
                     
                     # 2. Virtual Stop (Open but violated)
-                    # Note: We check if Live Price is valid (>0) to avoid false triggers on missing data
+                    # Note: We check if Live Price is valid (>0) to avoid false triggers
                     curr = float(row.get('Live Price', 0.0))
                     if 'OPEN' in status and curr > 0 and stop_loss > 0 and curr < stop_loss:
-                         return ((stop_loss - ent) / ent) * 100
+                         pct = ((stop_loss - ent) / ent) * 100
+                         pl_dollar = (stop_loss - ent) * shares
+                         return pct, pl_dollar
                     
-                    # 3. Normal Live Return
-                    return ((curr - ent) / ent) * 100
-                except:
-                    return 0.0
+                    # 3. Normal Live Return (Unrealized)
+                    if 'OPEN' in status:
+                         pct = ((curr - ent) / ent) * 100
+                         pl_dollar = (curr - ent) * shares
+                         return pct, pl_dollar
 
-            df['Strategy Return %'] = df.apply(calc_strategy_return, axis=1)
+                    # 4. Closed (Manual) - Data Missing for Exit Price usually
+                    # TODO: accurate exit price needed for closed trades. 
+                    return 0.0, 0.0 
+                except:
+                    return 0.0, 0.0
+
+            # Apply calculation
+            pl_results = df.apply(calc_strategy_return, axis=1)
+            df['Strategy Return %'] = pl_results.apply(lambda x: x[0])
+            df['P/L ($)'] = pl_results.apply(lambda x: x[1])
 
             # --- UI DATA REFINEMENTS ---
             
@@ -711,7 +731,7 @@ def main():
                 "Date", "Ticker", "Entry_Price", "Live Price", 
                 "DeRisk_Target", "Stop_Loss_Target", 
                 "Shares_Count", "Position_Cost",
-                "Strategy Return %", "Status"
+                "Strategy Return %", "P/L ($)", "Status"
             ]
             
             # Filter columns that actually exist
@@ -722,10 +742,39 @@ def main():
             if 'Ticker' in view_df.columns:
                  view_df['Ticker'] = view_df['Ticker'].apply(lambda t: f"https://robinhood.com/us/en/stocks/{t}/")
 
-            # --- TOTAL P/L SUMMARY ---
-            # Just a sum of percentages for now (approximate portfolio heat)
-            total_pl = view_df["Strategy Return %"].sum()
+            # --- FINANCIAL CALCULATIONS ---
+            # Total P/L ($) - Sum of all VALID P/L (Realized + Unrealized)
+            total_pl_dollars = view_df["P/L ($)"].sum()
             
+            # Account Size (for Tooltip only now)
+            try:
+                account_size = float(os.getenv("ACCOUNT_SIZE", 500.0))
+            except:
+                account_size = 500.0
+                
+            # Total Equity = Current Market Value of OPEN Positions
+            # Logic: Sum(Entry Cost of Open) + Sum(P/L of Open)
+            # OR simply: Sum(Live Price * Shares) for Open
+            
+            total_holdings_value = 0.0
+            
+            if 'Status' in view_df.columns and 'Live Price' in view_df.columns and 'Shares_Count' in view_df.columns:
+                # Filter for OPEN trades (checking specifically for the Badge string or raw status if we reused df)
+                # We are using view_df which has the badge "🟢 OPEN"
+                
+                # It's safer to recalculate from original df or parse view_df
+                # Let's use the raw 'df' which has 'Status' as badges now.
+                # Actually, let's just iterate view_df since we have the data.
+                
+                opens_mask = view_df['Status'].astype(str).str.contains("OPEN")
+                open_trades = view_df[opens_mask]
+                
+                if not open_trades.empty:
+                    # Calculate Market Value: Live Price * Shares
+                    # Note: Handle NaNs or Nones
+                    open_trades['Market_Value'] = open_trades['Live Price'].fillna(0.0) * open_trades['Shares_Count'].fillna(0.0)
+                    total_holdings_value = open_trades['Market_Value'].sum()
+
             # Calculate Period
             if 'Date' in view_df.columns and not view_df['Date'].empty:
                 min_date = view_df['Date'].min()
@@ -747,9 +796,35 @@ def main():
             else:
                 period_str = "N/A"
 
-            c1, c2 = st.columns(2)
-            c1.metric("Cumulative Unrealized P/L", f"{total_pl:.2f}%", help="Sum of current open/closed performance %.")
-            c2.metric("Time Elapsed", period_str, help=f"Time between first and last alert.")
+            # --- METRICS ROW ---
+            c1, c2, c3, c4 = st.columns(4)
+            
+            with c1:
+                st.metric(
+                    label="Total Equity",
+                    value=f"${total_holdings_value:,.2f}",
+                    delta=f"${total_pl_dollars:,.2f}",
+                    help=f"Initial Investment of ${account_size:,.0f}"
+                )
+            
+            with c2:
+                st.metric(
+                    label="Net P/L ($)",
+                    value=f"${total_pl_dollars:,.2f}",
+                    help="Total Realized + Unrealized P/L"
+                )
+
+            with c3:
+                # Total Return % = (Total P/L / Initial Investment) * 100
+                total_return_pct = (total_pl_dollars / account_size) * 100
+                st.metric(
+                    label="Total Return",
+                    value=f"{total_return_pct:.2f}%",
+                    help="Portfolio Growth % (P/L relative to Initial Acct Size)"
+                )
+                
+            with c4:
+                st.metric("Time Elapsed", period_str)
             
             st.divider()
             # ------------------------------
@@ -777,14 +852,27 @@ def main():
                 if val > 0: return 'color: #2ecc71;' # Green
                 if val < 0: return 'color: #e74c3c;' # Red
                 return ''
+                
+            def style_pl_dollar_col(val):
+                if not isinstance(val, (int, float)): return ''
+                if val > 0: return 'color: #2ecc71; font-weight: bold;' 
+                if val < 0: return 'color: #e74c3c; font-weight: bold;'
+                return ''
 
             # Create styled dataframe (Row style + Column style)
             styled_view = view_df.style.apply(style_status_rows, axis=1)\
-                                       .map(style_return_col, subset=['Strategy Return %'])
+                                       .map(style_return_col, subset=['Strategy Return %'])\
+                                       .map(style_pl_dollar_col, subset=['P/L ($)'])
             
             selection = st.dataframe(
                 styled_view,
-                width="stretch", # Fixed deprecation warning: use width='stretch' instead of use_container_width=True
+                width=1400, # Use width=1400 or just let it stretch
+                # use_container_width=True, # Deprecated? User said stretch. 
+                # Actually, check logic above. User code had:
+                # selection = st.dataframe(..., width="stretch" (which isn't valid int), or use_container_width)
+                # Correction: 'use_container_width' is the modern way. 'width' takes int.
+                # Let's use use_container_width=True
+                use_container_width=True,
                 hide_index=True,
                 selection_mode="single-row",
                 on_select="rerun",
@@ -796,15 +884,13 @@ def main():
                     ),
                     "Entry_Price": st.column_config.NumberColumn("Entry", format="$%.2f"),
                     "Live Price": st.column_config.NumberColumn("Live", format="$%.2f"),
-                    "DeRisk_Target": st.column_config.NumberColumn("DeRisk Lv", format="$%.2f"),
+                    "DeRisk_Target": st.column_config.NumberColumn("De-Risk Trigger", format="$%.2f"),
                     "Stop_Loss_Target": st.column_config.NumberColumn("Stop Loss", format="$%.2f"),
                     "Shares_Count": st.column_config.NumberColumn("Shares", format="%.4f"),
-                    "Position_Cost": st.column_config.NumberColumn("Cost Basis", format="$%.2f"), # Changed to .2f to match metric currency feel if needed, usually .0f is fine for round numbers but user asked for currency
-                    "Strategy Return %": st.column_config.NumberColumn(
-                        "Strategy Return %", 
-                        format="%.2f%%",
-                    ),
-                    "Status": st.column_config.TextColumn("Status")
+                    "Position_Cost": st.column_config.NumberColumn("Cost Basis", format="$%.2f"),
+                    "Strategy Return %": st.column_config.NumberColumn("Return %", format="%.2f%%"),
+                    "P/L ($)": st.column_config.NumberColumn("P/L ($)", format="$%.2f"),
+                    "Status": st.column_config.TextColumn("Status"),
                 }
             )
 
