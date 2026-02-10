@@ -817,6 +817,10 @@ def main():
                 sel_ticker = view_df.iloc[0]['Ticker']
             
             if sel_ticker:
+                # Ensure we have just the ticker symbol (remove Robinhood URL if present)
+                if isinstance(sel_ticker, str) and "robinhood.com" in sel_ticker:
+                    sel_ticker = sel_ticker.rstrip('/').split('/')[-1]
+
                 st.divider()
                 st.caption(f"Analyzing History: {sel_ticker}")
                 render_chart(sel_ticker)
