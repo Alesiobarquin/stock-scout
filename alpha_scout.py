@@ -97,9 +97,12 @@ def get_available_buying_power() -> tuple[float, float]:
         
         # Check if we have cost column
         if 'Status' in df.columns and 'Position_Cost' in df.columns:
-            open_trades = df[df['Status'] == 'OPEN']
+            open_trades = df[df['Status'] == 'OPEN'].copy()
             if not open_trades.empty:
-                open_cost = open_trades['Position_Cost'].sum()
+                # Clean currency strings if present
+                if open_trades['Position_Cost'].dtype == 'object':
+                     open_trades['Position_Cost'] = open_trades['Position_Cost'].astype(str).str.replace('$', '').str.replace(',', '')
+                open_cost = pd.to_numeric(open_trades['Position_Cost'], errors='coerce').fillna(0.0).sum()
                 
         buying_power = base_equity - open_cost
         return max(0.0, buying_power), base_equity
@@ -289,6 +292,97 @@ def manage_portfolio_health():
                     f"🛡️ **Move Hard Stop to Breakeven (${entry_price:.2f}).**"
                  )
                  send_telegram_alert(alert_msg)
+
+        # 4. BUDGET ENFORCEMENT (LIQUIDATION ENGINE)
+        # Re-check portfolio state after stop checks
+        open_active = df[df['Status'] == 'OPEN'].copy()
+        
+        if not open_active.empty:
+            # Calculate Equity
+            base_eq = float(os.getenv("ACCOUNT_SIZE", 500.0))
+            if 'Realized_PL' in df.columns:
+                 # Clean metric
+                 if df['Realized_PL'].dtype == 'object':
+                     df['Realized_PL'] = pd.to_numeric(df['Realized_PL'].astype(str).str.replace('$', '').str.replace(',', ''), errors='coerce').fillna(0.0)
+                 realized = df['Realized_PL'].sum()
+            else:
+                 realized = 0.0
+            
+            curr_equity = base_eq + realized
+            
+            # Calculate Total Exposure
+            if open_active['Position_Cost'].dtype == 'object':
+                open_active['Position_Cost'] = pd.to_numeric(open_active['Position_Cost'].astype(str).str.replace('$', '').str.replace(',', ''), errors='coerce').fillna(0.0)
+            
+            total_exposure = open_active['Position_Cost'].sum()
+            
+            # Budget Check
+            if total_exposure > curr_equity:
+                excess = total_exposure - curr_equity
+                print(f"[!] BUDGET EXCEEDED: Exposure ${total_exposure:,.2f} > Equity ${curr_equity:,.2f}. Reducing by ${total_exposure - curr_equity:,.2f}...")
+                
+                # Rank by Performance (Worst first) to cut losers
+                performance_list = []
+                for idx, row in open_active.iterrows():
+                    tick = row['Ticker']
+                    entry = float(row.get('Entry_Price', 0))
+                    cost = float(row.get('Position_Cost', 0))
+                    
+                    # Get current price from our earlier fetch or fallback
+                    curr = 0.0
+                    if tick in current_prices:
+                        curr = float(current_prices[tick])
+                    else:
+                        # Fallback fetch if missed (shouldn't happen often)
+                        try:
+                           curr = yf.Ticker(tick).fast_info.last_price
+                        except:
+                           curr = entry # Assume flat if data fail to avoid panic sell? Or Sell? Assume Sell to be safe.
+                    
+                    unrealized_pct = (curr - entry) / entry if entry > 0 else -1.0
+                    performance_list.append({
+                        'index': idx,
+                        'ticker': tick,
+                        'unrealized_pct': unrealized_pct,
+                        'cost': cost,
+                        'current_price': curr
+                    })
+                
+                # Sort: Lowest P/L first
+                performance_list.sort(key=lambda x: x['unrealized_pct'])
+                
+                # Liquidation Loop
+                for item in performance_list:
+                    if total_exposure <= curr_equity:
+                        break # Budget restored
+                        
+                    # Liquidate
+                    idx = item['index']
+                    tick = item['ticker']
+                    cp = item['current_price']
+                    
+                    # Call close logic manually since helper 'close_position' is local to loop
+                    # Re-implementing simplified close here using DataFrame index directly
+                    entry_p = float(df.at[idx, 'Entry_Price'])
+                    shs = float(df.at[idx, 'Shares_Count'])
+                    pl_val = (cp - entry_p) * shs
+                    
+                    df.at[idx, 'Status'] = 'CLOSED'
+                    df.at[idx, 'Exit_Price'] = round(cp, 2)
+                    df.at[idx, 'Realized_PL'] = round(pl_val, 2)
+                    
+                    total_exposure -= item['cost'] # Reduce tracked exposure
+                    updates_made = True
+                    
+                    print(f"[{tick}] ✂️ BUDGET CUT: Closing worst performer ({item['unrealized_pct']*100:.2f}%). Freed ${item['cost']:.2f}")
+                    
+                    alert_txt = (
+                        f"✂️ **BUDGET ENFORCEMENT: ${tick}**\n"
+                        f"📉 Portfolio Overextended. Liquidating weak position.\n"
+                        f"💰 Realized P/L: ${pl_val:.2f}\n"
+                        f"📉 Return: {item['unrealized_pct']*100:.2f}%"
+                    )
+                    send_telegram_alert(alert_txt)
 
         if updates_made:
             df.to_csv(PERFORMANCE_LOG_FILE, index=False, quoting=csv.QUOTE_ALL)
