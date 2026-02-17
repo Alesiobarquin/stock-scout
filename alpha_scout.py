@@ -28,7 +28,7 @@ PERFORMANCE_LOG_FILE = "data/performance_log.csv"
 # Risk Management Configuration
 ACCOUNT_SIZE = float(os.getenv("ACCOUNT_SIZE", 500.0))
 RISK_PER_TRADE = 0.02       # 2% risk of account equity per trade
-MAX_OPEN_POSITIONS = 3      # Max active trades
+MAX_OPEN_POSITIONS = 5      # Max active trades
 HARD_STOP_CAP = 0.07        # Max 7% stop loss width
 
 # --- DATA MODELS ---
@@ -81,27 +81,54 @@ def parse_upside_percentage(upside_str: str) -> float:
     values = [float(x) for x in matches]
     return sum(values) / len(values)
 
-def check_portfolio_capacity():
-    """Checks if the portfolio is at capacity based on open positions."""
-    if not os.path.exists(PERFORMANCE_LOG_FILE):
-        return True # File doesn't exist, so capacity is fine
+def get_available_buying_power() -> tuple[float, float]:
+    """
+    Calculates Buying Power = Current Equity - Cost of Open Positions.
+    Returns (buying_power, current_equity)
+    """
+    base_equity = calculate_current_equity()
     
+    if not os.path.exists(PERFORMANCE_LOG_FILE):
+        return base_equity, base_equity
+        
     try:
         df = pd.read_csv(PERFORMANCE_LOG_FILE)
-        if 'Status' not in df.columns:
-            return True
-            
-        open_positions = df[df['Status'] == 'OPEN']
-        count = len(open_positions)
+        open_cost = 0.0
         
-        if count >= MAX_OPEN_POSITIONS:
-            print(f"[!] PORTFOLIO CAPACITY REACHED: {count}/{MAX_OPEN_POSITIONS} Open Positions.")
-            print("[!] Pausing scans to prevent over-exposure.")
-            return False
-        return True
+        # Check if we have cost column
+        if 'Status' in df.columns and 'Position_Cost' in df.columns:
+            open_trades = df[df['Status'] == 'OPEN']
+            if not open_trades.empty:
+                open_cost = open_trades['Position_Cost'].sum()
+                
+        buying_power = base_equity - open_cost
+        return max(0.0, buying_power), base_equity
+        
     except Exception as e:
-        print(f"[!] Error checking portfolio capacity: {e}")
-        return True # Default to allow if check fails (or fail safe? User said 'EXIT'. If read fails, maybe safe to run? Let's assume safe to run if read fails, but print error)
+        print(f"[!] Error calculating buying power: {e}")
+        return 0.0, base_equity
+
+def calculate_current_equity() -> float:
+    """
+    Calculates the current buying power / equity based on realized P/L.
+    Base Capital + Sum(Realized P/L).
+    """
+    base_equity = float(os.getenv("ACCOUNT_SIZE", 500.0))
+    
+    if not os.path.exists(PERFORMANCE_LOG_FILE):
+        return base_equity
+        
+    try:
+        df = pd.read_csv(PERFORMANCE_LOG_FILE)
+        if 'Realized_PL' in df.columns:
+            total_realized = df['Realized_PL'].sum()
+            current_equity = base_equity + total_realized
+            # Ensure we don't trade with negative equity (blown account)
+            return max(0.0, current_equity)
+        return base_equity
+    except Exception as e:
+        print(f"[!] Error calculating equity: {e}")
+        return base_equity
 
 # --- PORTFOLIO HEALTH CHECK ---
 def manage_portfolio_health():
@@ -116,8 +143,21 @@ def manage_portfolio_health():
 
     try:
         df = pd.read_csv(PERFORMANCE_LOG_FILE)
-        # Ensure necessary columns exist
-        required_cols = ['Ticker', 'Status', 'Stop_Loss', 'Breakeven_Trigger', 'Entry_Price', 'Shares_Count']
+        
+        # Ensure necessary columns exist (Schema Evolution)
+        required_cols = ['Ticker', 'Status', 'Stop_Loss', 'Breakeven_Trigger', 'Entry_Price', 'Shares_Count', 'Date']
+        new_cols = ['Exit_Price', 'Realized_PL']
+        
+        # Add new columns if missing
+        schema_updated = False
+        for col in new_cols:
+            if col not in df.columns:
+                df[col] = 0.0
+                schema_updated = True
+                
+        if schema_updated:
+             updates_made = True
+                
         if not all(col in df.columns for col in required_cols):
             return
 
@@ -137,38 +177,31 @@ def manage_portfolio_health():
         
         try:
             # Batch fetch for efficiency
-            # Using yf.download is efficient for multiple tickers
             if len(tickers) > 0:
                 data = yf.download(tickers, period="1d", interval="1m", progress=False)
-                
-                # Check if data is empty
                 if data.empty:
                     print("[!] No price data received.")
                 else:
-                    # Extract Close prices
-                    # Use 'Close' column. If multi-index (multiple tickers), it has a level for Ticker
                     closes = data['Close']
-                    
                     if len(tickers) == 1:
-                        # Single ticker case: 'closes' is a Series (or DataFrame with 1 col if keep names)
-                        # Access safely
-                        current_prices[tickers[0]] = closes.iloc[-1]
+                        # Handle single ticker series
+                        if isinstance(closes, pd.DataFrame):
+                             current_prices[tickers[0]] = closes.iloc[-1].item()
+                        else:
+                             current_prices[tickers[0]] = closes.iloc[-1]
                         processed_tickers.append(tickers[0])
                     else:
-                        # Multiple tickers case
                         for t in tickers:
                             try:
                                 if t in closes.columns:
-                                    price = closes[t].iloc[-1]
-                                    if pd.notna(price):
-                                        current_prices[t] = price
-                                        processed_tickers.append(t)
+                                    current_prices[t] = closes[t].iloc[-1]
+                                    processed_tickers.append(t)
                             except:
                                 pass
         except Exception as e:
             print(f"[!] Batch fetch failed, trying individual: {e}")
         
-        # Fallback / Individual ensure
+        # Fallback
         for t in tickers:
             if t not in processed_tickers:
                 try:
@@ -192,51 +225,84 @@ def manage_portfolio_health():
                 breakeven = float(row['Breakeven_Trigger'])
                 entry_price = float(row['Entry_Price'])
                 shares = float(row['Shares_Count'])
+                entry_date_str = str(row['Date'])
             except:
                 continue
             
-            # SCENARIO A: STOP LOSS HIT
+            # Helper for closing
+            def close_position(reason, exit_price):
+                pl = (exit_price - entry_price) * shares
+                df.at[index, 'Status'] = reason
+                df.at[index, 'Exit_Price'] = round(exit_price, 2)
+                df.at[index, 'Realized_PL'] = round(pl, 2)
+                return pl
+
+            # 1. PRIORITY: STOP LOSS CHECK
+            # We check this FIRST so that even if a trade is old (stale), 
+            # if it hit the stop, we record it as a Stop Loss exit (honoring the stop price).
             if current_price <= stop_loss:
-                # Update Status in the MAIN dataframe (using original index)
-                df.at[index, 'Status'] = 'STOPPED_OUT'
+                pl = close_position('STOPPED_OUT', stop_loss) # Executing at STOP price (slippage ignored)
                 updates_made = True
-                
-                loss_amount = (entry_price - stop_loss) * shares
-                
                 print(f"[{ticker}] 🛑 STOP LOSS TRIGGERED at ${current_price:.2f} (Stop: ${stop_loss :.2f})")
-                
                 alert_msg = (
                     f"🚫 **STOP LOSS TRIGGERED: ${ticker}**\n"
-                    f"📉 Price crossed ${stop_loss:.2f}. Marked as CLOSED in DB.\n"
-                    f"💸 Est. Loss: -${loss_amount:.2f}\n"
+                    f"📉 Price crossed ${stop_loss:.2f}.\n"
+                    f"💸 Realized Loss: -${abs(pl):.2f}\n"
                     f"🔄 **Slot Freed.**"
                 )
                 send_telegram_alert(alert_msg)
+                continue
 
-            # SCENARIO B: BREAKEVEN TRIGGER HIT
-            elif current_price >= breakeven:
-                 # Just Alert (Do not close)
+            # 2. TIME STOP CHECKS (Stale Trades)
+            # Only check if we are NOT stopped out.
+            days_held = 0
+            try:
+                entry_dt = pd.to_datetime(entry_date_str)
+                if entry_dt.tzinfo:
+                   entry_dt = entry_dt.tz_localize(None)
+                
+                now_dt = datetime.now()
+                days_held = (now_dt - entry_dt).days
+            except Exception as e:
+                print(f"[!] Date parse error for {ticker}: {e}")
+
+            if days_held >= 7:
+                pl = close_position('CLOSED', current_price) # Manual CLOSE/Time Stop at Market Price
+                updates_made = True
+                print(f"[{ticker}] ⏳ TIME STOP TRIGGERED (Held {days_held} days). Closing at ${current_price:.2f}")
+                alert_msg = (
+                    f"🕑 **TIME STOP: ${ticker}**\n"
+                    f"📅 Held > 7 Days. Closing to free capital.\n"
+                    f"💰 P/L: ${pl:.2f}\n"
+                    f"🔄 **Slot Freed.**"
+                )
+                send_telegram_alert(alert_msg)
+                continue 
+            
+            # 3. BREAKEVEN ALERT
+            if current_price >= breakeven:
+                 # Just Alert for now
                  print(f"[{ticker}] ⚠️ DE-RISK TRIGGERED at ${current_price:.2f}")
-                 
                  alert_msg = (
                     f"⚠️ **DE-RISK ALERT: ${ticker}**\n"
                     f"🚀 Price hit ${current_price:.2f}.\n"
-                    f"🛡️ **Move Hard Stop to Breakeven.**"
+                    f"🛡️ **Move Hard Stop to Breakeven (${entry_price:.2f}).**"
                  )
                  send_telegram_alert(alert_msg)
 
         if updates_made:
             df.to_csv(PERFORMANCE_LOG_FILE, index=False, quoting=csv.QUOTE_ALL)
-            print("[*] Portfolio Log Updated: Stopped out positions closed.")
+            print("[*] Portfolio Log Updated: Positions managed.")
 
     except Exception as e:
         print(f"[!] Error in Auto-Gardener: {e}")
 
 
 # --- QUANTITATIVE ENGINE ---
-def enrich_with_technical_data(catalyst: Catalyst) -> Optional[Catalyst]:
+def enrich_with_technical_data(catalyst: Catalyst, total_equity: float, buying_power: float) -> Optional[Catalyst]:
     """
-    Fetches live data, calculates Position Size, Dynamic Stops, and Breakeven Trigger.
+    Fetches live data, calculates Position Size based on Total Equity risk, 
+    but Caps max size at Available Buying Power.
     """
     print(f"[*] Fetching technical data for {catalyst.ticker}...")
     try:
@@ -273,19 +339,29 @@ def enrich_with_technical_data(catalyst: Catalyst) -> Optional[Catalyst]:
             print(f"[!] Invalid risk/reward for {catalyst.ticker} (Stop > Price). Skipping.")
             return None
             
-        # 3. Position Sizing
-        risk_amount = ACCOUNT_SIZE * RISK_PER_TRADE
-        # Fractionals allowed:
-        shares_to_buy = risk_amount / risk_per_share
+        # 3. Position Sizing (Risk Constraint)
+        # Use Total Equity for the 2% Risk Rule (Standard Portfolio Sizing)
+        risk_amount = total_equity * RISK_PER_TRADE
+        shares_risk_based = risk_amount / risk_per_share
         
-        # 4. Cost Basis Constraint (Max 20% allocation)
+        # 4. Buying Power Constraint (Cash Constraint)
+        # Cannot buy more than we have cash for
+        shares_cash_based = buying_power / current_price
+        
+        # 5. Max Allocation Constraint (20% of Portfolio Value)
+        max_allocation_shares = (total_equity * 0.20) / current_price
+        
+        # Final Shares = Minimum of all constraints
+        shares_to_buy = min(shares_risk_based, shares_cash_based, max_allocation_shares)
+        
+        if shares_to_buy < 1:
+             # Try allowing fractional if > 0.1? Or just skip if too small.
+             if shares_to_buy * current_price < 20.0: # Minimum trade size check
+                 print(f"[!] Position size too small (${shares_to_buy * current_price:.2f}). Skipping.")
+                 return None
+        
+        # Recalculate cost
         projected_cost = shares_to_buy * current_price
-        max_allocation = ACCOUNT_SIZE * 0.20
-        
-        if projected_cost > max_allocation:
-            # Cap shares to max allocation
-            shares_to_buy = max_allocation / current_price
-            projected_cost = shares_to_buy * current_price
             
         if shares_to_buy < 0.0001:
             print(f"[!] Position size too small for {catalyst.ticker}. Skipping.")
@@ -350,13 +426,16 @@ def log_to_performance_csv(catalyst: Catalyst):
         'OPEN',                        # Status
         catalyst.shares_count,         # Shares Count
         catalyst.position_cost,        # Position Cost
-        catalyst.risk_r_unit           # Risk per Share ($)
+        catalyst.risk_r_unit,          # Risk per Share ($)
+        0.0,                           # Exit_Price (New)
+        0.0                            # Realized_PL (New)
     ]
     
     headers = [
         "Date", "Ticker", "Entry_Price", "Conviction", 
         "Market_Cap", "ATR_Value", "Stop_Loss", "Breakeven_Trigger", 
-        "Thesis", "Status", "Shares_Count", "Position_Cost", "Risk_R_Unit"
+        "Thesis", "Status", "Shares_Count", "Position_Cost", "Risk_R_Unit",
+        "Exit_Price", "Realized_PL"
     ]
 
     # 3. Write to CSV (Append Mode)
@@ -501,9 +580,18 @@ def main():
     # Runs FIRST to clear out stopped positions and free up slots.
     manage_portfolio_health()
     
-    # 2. Portfolio Capacity Check
-    if not check_portfolio_capacity():
-        return # Exit script if capacity reached
+    # Calculate Equity & Buying Power
+    buying_power, current_equity = get_available_buying_power()
+    print(f"[*] Equity: ${current_equity:,.2f} | Buying Power: ${buying_power:,.2f}")
+    
+    # 2. Portfolio Capacity Check (Capital Based)
+    # Define a minimum trade size effective for fees/slippage (e.g., $20)
+    MIN_TRADE_CAPITAL = 20.0 
+    
+    if buying_power < MIN_TRADE_CAPITAL:
+        print(f"[!] Insufficient capital to trade (Available: ${buying_power:.2f}). Pausing.")
+        return # Exit script if verified no cash
+
 
     try:
         report, is_fallback = get_alpha_scout_response()
@@ -521,7 +609,8 @@ def main():
             if c.sentiment != "Bullish" or not is_liquid: continue
 
             # 2. QUANTITATIVE VERIFICATION
-            enriched_c = enrich_with_technical_data(c)
+            # Pass Buying Power constraint
+            enriched_c = enrich_with_technical_data(c, current_equity, buying_power)
             if not enriched_c: continue
 
             # 3. Final Scoring

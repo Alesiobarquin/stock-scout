@@ -205,12 +205,22 @@ def load_history_csv():
             
             # --- NEW ROW (13 Cols) ---
             elif len(vals) >= 13:
-                processed_rows.append({
+                row_dict = {
                     "Date": vals[0], "Ticker": vals[1], "Entry_Price": vals[2], "Conviction": vals[3],
                     "Market_Cap": vals[4], "ATR_Value": vals[5], "Stop_Loss_Target": vals[6], 
                     "DeRisk_Target": vals[7], "Thesis": vals[8], "Status": vals[9],
                     "Shares_Count": vals[10], "Position_Cost": vals[11], "Risk_R_Unit": vals[12]
-                })
+                }
+                
+                # Extended Schema (15 Cols with Exit/PL)
+                if len(vals) >= 15:
+                    row_dict["Exit_Price"] = vals[13]
+                    row_dict["Realized_PL"] = vals[14]
+                else:
+                    row_dict["Exit_Price"] = 0.0
+                    row_dict["Realized_PL"] = 0.0
+                    
+                processed_rows.append(row_dict)
 
         df = pd.DataFrame(processed_rows)
         
@@ -681,6 +691,13 @@ def main():
                     
                     # 1. Officially Stopped (Realized)
                     if 'STOPPED_OUT' in status:
+                        # Prioritize CSV Realized P/L if available (The "Official" Record)
+                        csv_pl = float(row.get('Realized_PL', 0.0))
+                        if csv_pl != 0.0:
+                             pct = (csv_pl / (ent*shares)) * 100 if (ent*shares) > 0 else 0.0
+                             return pct, csv_pl
+                        
+                        # Fallback to calculated if CSV missing
                         pct = ((stop_loss - ent) / ent) * 100
                         pl_dollar = (stop_loss - ent) * shares
                         return pct, pl_dollar
@@ -699,9 +716,23 @@ def main():
                          pl_dollar = (curr - ent) * shares
                          return pct, pl_dollar
 
-                    # 4. Closed (Manual) - Data Missing for Exit Price usually
-                    # TODO: accurate exit price needed for closed trades. 
-                    return 0.0, 0.0 
+                    # 4. Closed (Manual/Time Stop)
+                    if 'CLOSED' in status:
+                        # Prioritize CSV Realized P/L
+                        csv_pl = float(row.get('Realized_PL', 0.0))
+                        # If P/L is recorded, return it
+                        if csv_pl != 0.0:
+                             pct = (csv_pl / (ent*shares)) * 100 if (ent*shares) > 0 else 0.0
+                             return pct, csv_pl
+                        
+                        # Fallback: Try using Exit_Price if available
+                        exit_p = float(row.get('Exit_Price', 0.0))
+                        if exit_p > 0:
+                             pct = ((exit_p - ent) / ent) * 100
+                             pl_dollar = (exit_p - ent) * shares
+                             return pct, pl_dollar
+                             
+                        return 0.0, 0.0 
                 except:
                     return 0.0, 0.0
 
@@ -759,40 +790,26 @@ def main():
             # OR simply: Sum(Live Price * Shares) for Open
             
             total_initial_cost = 0.0
-            total_holdings_value = 0.0
             unrealized_pl = 0.0
             
-            if 'Status' in view_df.columns and 'Live Price' in view_df.columns and 'Shares_Count' in view_df.columns:
-                # Filter for OPEN trades (checking specifically for the Badge string or raw status if we reused df)
-                # We are using view_df which has the badge "🟢 OPEN"
-                
-                # It's safer to recalculate from original df or parse view_df
-                # Let's use the raw 'df' which has 'Status' as badges now.
-                # Actually, let's just iterate view_df since we have the data.
-                
+            if 'Status' in view_df.columns:
+                # Filter for OPEN trades to calculate Unrealized P/L
                 opens_mask = view_df['Status'].astype(str).str.contains("OPEN")
                 open_trades = view_df[opens_mask]
                 
                 if not open_trades.empty:
-                    # UPDATED REVISION: Use strategy-aligned P/L from the table logic
-                    # This ensures the "Active P/L" metric matches the sum of the rows in the table
-                    # which includes "Virtual Stops" (capping losses at the stop level).
-                    
                     unrealized_pl = open_trades['P/L ($)'].sum()
                     
-                    # Calculate Total Initial Cost (for reference in tooltip/Total Equity)
+                    # Calculate Total Initial Cost (for reference in tooltip)
                     if 'Position_Cost' in open_trades.columns:
                         total_initial_cost = open_trades['Position_Cost'].fillna(0.0).sum()
                     else:
                         total_initial_cost = (open_trades['Entry_Price'].fillna(0.0) * open_trades['Shares_Count'].fillna(0.0)).sum()
-                        
-                    # Recalculate Total Holdings Value based on this Strategy P/L
-                    # Strategy Equity = Initial Cost + Strategy P/L
-                    total_holdings_value = total_initial_cost + unrealized_pl
 
-                else:
-                    total_initial_cost = 0.0
-                    unrealized_pl = 0.0
+            # --- TOTAL EQUITY CALCULATION ---
+            # Formula: Base Account Size + Total P/L (Realized + Unrealized)
+            # view_df["P/L ($)"] contains Realized P/L for closed trades and Unrealized P/L for open trades.
+            total_equity = account_size + total_pl_dollars
 
             # Calculate Period
             if 'Date' in view_df.columns and not view_df['Date'].empty:
@@ -821,16 +838,16 @@ def main():
             with c1:
                 st.metric(
                     label="Total Equity",
-                    value=f"${total_holdings_value:,.2f}",
-                    delta=f"${unrealized_pl:,.2f}" if unrealized_pl >= 0 else f"-${abs(unrealized_pl):,.2f}",
-                    help=f"Combined Initial Cost of Open Positions: ${total_initial_cost:,.2f}"
+                    value=f"${total_equity:,.2f}",
+                    delta=f"${total_pl_dollars:,.2f}" if total_pl_dollars >= 0 else f"-${abs(total_pl_dollars):,.2f}",
+                    help=f"Liquidation Value (Base $500 + Realized ${view_df['P/L ($)'].sum() - unrealized_pl:.2f} + Unrealized ${unrealized_pl:.2f})"
                 )
             
             with c2:
                 st.metric(
-                    label="Active P/L ($)",
-                    value=f"${unrealized_pl:,.2f}" if unrealized_pl >= 0 else f"-${abs(unrealized_pl):,.2f}",
-                    help="Net P/L of currently open positions (Live - Entry)"
+                    label="Total P/L ($)",
+                    value=f"${total_pl_dollars:,.2f}" if total_pl_dollars >= 0 else f"-${abs(total_pl_dollars):,.2f}",
+                    help="Net Profit if all positions were closed immediately (Realized + Unrealized)"
                 )
 
             with c3:
@@ -839,7 +856,7 @@ def main():
                 st.metric(
                     label="Total Return",
                     value=f"{total_return_pct:.2f}%",
-                    help="Portfolio Growth % (P/L relative to Initial Acct Size)"
+                    help="Portfolio Growth % (Total P/L relative to Initial Acct Size)"
                 )
                 
             with c4:

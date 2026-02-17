@@ -71,6 +71,7 @@ python alpha_scout.py
 Visualize the active signals and history.
 ```bash
 streamlit run app.py
+(.venv/bin/streamlit run app.py)
 ```
 
 ## 📂 Project Structure
