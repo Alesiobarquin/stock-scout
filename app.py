@@ -774,23 +774,21 @@ def main():
                 open_trades = view_df[opens_mask]
                 
                 if not open_trades.empty:
-                    # Calculate Market Value: Live Price * Shares
-                    # Note: Handle NaNs or Nones
-                    open_trades['Market_Value'] = open_trades['Live Price'].fillna(0.0) * open_trades['Shares_Count'].fillna(0.0)
-                    total_holdings_value = open_trades['Market_Value'].sum()
+                    # UPDATED REVISION: Use strategy-aligned P/L from the table logic
+                    # This ensures the "Active P/L" metric matches the sum of the rows in the table
+                    # which includes "Virtual Stops" (capping losses at the stop level).
                     
-                    # Calculate Initial Cost of Open Positions
+                    unrealized_pl = open_trades['P/L ($)'].sum()
+                    
+                    # Calculate Total Initial Cost (for reference in tooltip/Total Equity)
                     if 'Position_Cost' in open_trades.columns:
-                        # Use recorded position cost if available
                         total_initial_cost = open_trades['Position_Cost'].fillna(0.0).sum()
                     else:
-                        # Fallback to calculated cost
                         total_initial_cost = (open_trades['Entry_Price'].fillna(0.0) * open_trades['Shares_Count'].fillna(0.0)).sum()
-
-                    # Calculate P/L for Open Positions (Unrealized - Real Market Value)
-                    # We use total value - total cost to reflect the TRUE account swing, 
-                    # ignoring "Virtual Stop" logic which might be capping losses in the table.
-                    unrealized_pl = total_holdings_value - total_initial_cost
+                        
+                    # Recalculate Total Holdings Value based on this Strategy P/L
+                    # Strategy Equity = Initial Cost + Strategy P/L
+                    total_holdings_value = total_initial_cost + unrealized_pl
 
                 else:
                     total_initial_cost = 0.0
